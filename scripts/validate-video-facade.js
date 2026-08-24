@@ -74,12 +74,25 @@ const fakeStream = {
 
 const facade = createBrowserVideoMediaFacade({
   mediaDevices: {
+    async enumerateDevices() {
+      return [
+        { kind: "audioinput", deviceId: "mic-1", label: "Mic", groupId: "audio" },
+        { kind: "videoinput", deviceId: "camera-1", label: "Front camera", groupId: "front" },
+        { kind: "videoinput", deviceId: "camera-2", label: "", groupId: "" }
+      ];
+    },
     async getUserMedia(constraints) {
       assert.deepEqual(constraints, liveSource.constraints);
       return fakeStream;
     }
   }
 });
+
+const cameraDevices = await facade.listCameraDevices();
+assert.deepEqual(cameraDevices, [
+  { deviceId: "camera-1", label: "Front camera", groupId: "front" },
+  { deviceId: "camera-2", label: "Camera 2", groupId: undefined }
+]);
 
 const request = await facade.requestCamera(liveSource);
 assert.equal(request.status, "granted");

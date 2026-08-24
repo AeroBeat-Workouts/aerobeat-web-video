@@ -39,6 +39,15 @@ export const aeroVideoMediaServiceId = "aero.video.media";
  */
 
 /**
+ * Public camera input descriptor normalized from `MediaDeviceInfo`.
+ *
+ * @typedef {object} AeroCameraDeviceDescriptor
+ * @property {string} deviceId Browser media device ID.
+ * @property {string} label Browser-provided or fallback display label.
+ * @property {string | undefined} groupId Browser media device group ID.
+ */
+
+/**
  * A snapshot of media surface state for downstream CV, UI, or assembly code.
  *
  * @typedef {object} AeroVideoSurfaceDescriptor
@@ -71,6 +80,7 @@ export const aeroVideoMediaServiceId = "aero.video.media";
  * @property {"aero.video.media"} serviceId Stable service ID.
  * @property {readonly AeroVideoSourceKind[]} supportedSources Supported video source kinds.
  * @property {() => MediaStream | undefined} getRetainedCameraStream Reads the retained camera stream.
+ * @property {() => Promise<readonly AeroCameraDeviceDescriptor[]>} listCameraDevices Lists available videoinput devices when the browser exposes them.
  * @property {(source?: LiveCameraSourceDescriptor) => Promise<AeroCameraRequestResult>} requestCamera Requests camera permission and retains the granted stream.
  * @property {(videoElement: HTMLVideoElement, stream?: MediaStream, options?: AttachStreamOptions) => AeroVideoSurfaceDescriptor} attachCameraStream Attaches the retained or supplied stream to a video element.
  * @property {(videoElement: HTMLVideoElement, source: BrowserLoadedVideoDescriptor) => AeroVideoSurfaceDescriptor} attachVideoSource Attaches a browser-loaded video or replay source to a video element.
@@ -105,6 +115,19 @@ export function createBrowserVideoMediaFacade(options = {}) {
     supportedSources: ["live-camera", "loaded-video", "replay-video-feed"],
     getRetainedCameraStream() {
       return retainedCameraStream;
+    },
+    async listCameraDevices() {
+      if (!mediaDevices?.enumerateDevices) {
+        return [];
+      }
+      const devices = await mediaDevices.enumerateDevices();
+      return devices
+        .filter((device) => device.kind === "videoinput" && device.deviceId)
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label || `Camera ${index + 1}`,
+          groupId: device.groupId || undefined
+        }));
     },
     async requestCamera(source = createLiveCameraSourceDescriptor()) {
       if (!mediaDevices?.getUserMedia) {

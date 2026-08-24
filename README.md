@@ -4,7 +4,7 @@
 
 AeroBeat-owned browser video and camera media lifecycle facade for the web port.
 
-This package owns browser-native live camera, loaded video, and replay video feed source descriptors plus the facade that requests camera permission, retains granted streams, attaches media to `HTMLVideoElement` surfaces, reports playback/surface metadata, and tears streams down.
+This package owns browser-native live camera, loaded video, and replay video feed source descriptors plus the facade that lists available camera inputs, requests camera permission, retains granted streams, attaches media to `HTMLVideoElement` surfaces, reports playback/surface metadata, and tears streams down.
 
 It does not own MoveNet inference, pose-frame production, gameplay input routing, WebGL2 drawing, UI components, or product assembly wiring.
 

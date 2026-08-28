@@ -1,30 +1,21 @@
 // @ts-check
 
-/**
- * Browser media source kinds owned by the AeroBeat video facade.
- *
- * @typedef {"live-camera" | "loaded-video" | "replay-video-feed"} AeroVideoSourceKind
- */
-
-/**
- * How the media should fit its presentation surface.
- *
- * @typedef {"stretch" | "contain" | "cover"} AeroVideoFitMode
- */
+/** @typedef {"live-camera" | "loaded-video" | "replay-video-feed"} AeroVideoSourceKind */
+/** @typedef {"stretch" | "contain" | "cover"} AeroVideoFitMode */
+/** @typedef {"background-only" | "sampled-media"} AeroVideoReadabilityRequirement */
+/** @typedef {"anonymous" | "use-credentials" | undefined} AeroVideoCrossOriginMode */
 
 /**
  * Shared descriptor fields for every video source.
  *
  * @typedef {object} AeroVideoSourceBase
  * @property {AeroVideoSourceKind} kind Source kind.
- * @property {string} sourceId Stable source identifier for diagnostics and downstream metadata.
+ * @property {string} sourceId Stable source identifier for diagnostics and calibration invalidation.
  * @property {AeroVideoFitMode} fitMode Presentation fit metadata.
  * @property {boolean} mirrored Whether consumers should mirror the surface.
  */
 
 /**
- * Live camera source request metadata.
- *
  * @typedef {AeroVideoSourceBase & {
  *   kind: "live-camera",
  *   constraints: MediaStreamConstraints
@@ -32,8 +23,6 @@
  */
 
 /**
- * Browser-loaded video file or URL metadata.
- *
  * @typedef {AeroVideoSourceBase & {
  *   kind: "loaded-video",
  *   url: string,
@@ -41,14 +30,14 @@
  *   loop: boolean,
  *   autoplay: boolean,
  *   muted: boolean,
- *   startTimeSeconds: number
+ *   startTimeSeconds: number,
+ *   readabilityRequirement: AeroVideoReadabilityRequirement,
+ *   crossOrigin: AeroVideoCrossOriginMode,
+ *   objectUrlOwned: boolean
  * }} LoadedVideoSourceDescriptor
  */
 
 /**
- * Replay video feed metadata. The replay source stays video lifecycle only;
- * pose truth, input routing, and inference belong to later CV/input seams.
- *
  * @typedef {AeroVideoSourceBase & {
  *   kind: "replay-video-feed",
  *   url: string,
@@ -56,7 +45,10 @@
  *   loop: boolean,
  *   autoplay: boolean,
  *   muted: boolean,
- *   startTimeSeconds: number
+ *   startTimeSeconds: number,
+ *   readabilityRequirement: "sampled-media",
+ *   crossOrigin: AeroVideoCrossOriginMode,
+ *   objectUrlOwned: boolean
  * }} ReplayVideoFeedSourceDescriptor
  */
 
@@ -79,6 +71,9 @@
  * @property {boolean | undefined} autoplay Whether playback should begin after loading.
  * @property {boolean | undefined} muted Whether the element should be muted.
  * @property {number | undefined} startTimeSeconds Initial playback position.
+ * @property {AeroVideoReadabilityRequirement | undefined} readabilityRequirement Whether the source is cosmetic-only or must remain sample-readable.
+ * @property {AeroVideoCrossOriginMode} crossOrigin Browser media CORS mode.
+ * @property {boolean | undefined} objectUrlOwned Whether the facade must revoke this object URL on release.
  */
 
 /**
@@ -92,25 +87,16 @@
  * @property {boolean | undefined} autoplay Whether playback should begin after loading.
  * @property {boolean | undefined} muted Whether the element should be muted.
  * @property {number | undefined} startTimeSeconds Initial playback position.
+ * @property {AeroVideoCrossOriginMode} crossOrigin Browser media CORS mode.
+ * @property {boolean | undefined} objectUrlOwned Whether the facade must revoke this object URL on release.
  */
 
-/**
- * Creates default live-camera constraints for the product-facing camera path.
- *
- * @returns {MediaStreamConstraints}
- */
+/** @returns {MediaStreamConstraints} */
 export function defaultLiveCameraConstraints() {
-  return {
-    audio: false,
-    video: {
-      facingMode: "user"
-    }
-  };
+  return { audio: false, video: { facingMode: "user" } };
 }
 
 /**
- * Describes a live camera source before a browser permission request.
- *
  * @param {LiveCameraSourceDescriptorOptions} [options]
  * @returns {LiveCameraSourceDescriptor}
  */
@@ -125,12 +111,11 @@ export function createLiveCameraSourceDescriptor(options = {}) {
 }
 
 /**
- * Describes a browser-loaded video source.
- *
  * @param {LoadedVideoSourceDescriptorOptions} options
  * @returns {LoadedVideoSourceDescriptor}
  */
 export function createLoadedVideoSourceDescriptor(options) {
+  const readabilityRequirement = options.readabilityRequirement ?? "background-only";
   return {
     kind: "loaded-video",
     sourceId: options.sourceId ?? "aero.video.loaded-video",
@@ -141,13 +126,14 @@ export function createLoadedVideoSourceDescriptor(options) {
     loop: options.loop ?? false,
     autoplay: options.autoplay ?? false,
     muted: options.muted ?? false,
-    startTimeSeconds: options.startTimeSeconds ?? 0
+    startTimeSeconds: finiteNonNegative(options.startTimeSeconds),
+    readabilityRequirement,
+    crossOrigin: options.crossOrigin ?? (readabilityRequirement === "sampled-media" ? "anonymous" : undefined),
+    objectUrlOwned: options.objectUrlOwned ?? false
   };
 }
 
 /**
- * Describes a replay feed backed by a browser-loaded video.
- *
  * @param {ReplayVideoFeedSourceDescriptorOptions} options
  * @returns {ReplayVideoFeedSourceDescriptor}
  */
@@ -156,12 +142,25 @@ export function createReplayVideoFeedSourceDescriptor(options) {
     kind: "replay-video-feed",
     sourceId: options.sourceId ?? "aero.video.replay-feed",
     url: options.url,
-    frameRate: options.frameRate,
+    frameRate: positiveFinite(options.frameRate),
     fitMode: options.fitMode ?? "contain",
     mirrored: options.mirrored ?? false,
     loop: options.loop ?? false,
     autoplay: options.autoplay ?? false,
     muted: options.muted ?? true,
-    startTimeSeconds: options.startTimeSeconds ?? 0
+    startTimeSeconds: finiteNonNegative(options.startTimeSeconds),
+    readabilityRequirement: "sampled-media",
+    crossOrigin: options.crossOrigin ?? "anonymous",
+    objectUrlOwned: options.objectUrlOwned ?? false
   };
+}
+
+/** @param {number | undefined} value @returns {number} */
+function finiteNonNegative(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/** @param {number | undefined} value @returns {number | undefined} */
+function positiveFinite(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }

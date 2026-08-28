@@ -6,6 +6,11 @@
   "exports": {
     ".": "./src/index.js"
   },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE.md"
+  ],
   "scripts": {
     "check": "npm run check:jsdoc && npm run check:imports && npm run check:components && npm run check:console && npm run check:facade",
     "check:jsdoc": "node scripts/validate-jsdoc-no-any.js",
@@ -14,8 +19,11 @@
     "check:console": "node scripts/validate-playwright-console-noise.js",
     "check:facade": "node scripts/validate-video-facade.js",
     "test": "npm run check",
-    "test:browser": "npm run check:console",
+    "test:browser": "npm run check:console && node scripts/validate-browser-lifecycle.js",
     "demo": "npm --prefix .testbed run demo",
     "testbed:serve": "npm --prefix .testbed run serve"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

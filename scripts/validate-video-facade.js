@@ -11,6 +11,7 @@ import {
 
 /** @typedef {object} FakeTrack
  * @property {boolean} stopped
+ * @property {number} stopCalls
  * @property {() => void} stop
  */
 /** @typedef {object} FakeStream
@@ -45,7 +46,7 @@ import {
 /** @returns {{track: FakeTrack, stream: FakeStream}} */
 function createFakeStream() {
   /** @type {FakeTrack} */
-  const track = { stopped: false, stop() { this.stopped = true; } };
+  const track = { stopped: false, stopCalls: 0, stop() { this.stopped = true; this.stopCalls += 1; } };
   /** @type {FakeStream} */
   const stream = { id: `stream-${Math.random()}`, getTracks() { return [track]; } };
   return { track, stream };
@@ -295,5 +296,92 @@ blobFacade.attachVideoBlob(
 assert.equal(blobElement.src, "blob:aero-test");
 blobFacade.clearVideoElement();
 assert.deepEqual(revoked, ["blob:aero-test"]);
+
+// Cross-kind replacement revokes facade-owned URLs and stops only facade-owned streams.
+const replacementRevoked = [];
+const replacementFacade = createBrowserVideoMediaFacade({
+  objectUrlApi: {
+    createObjectURL() { return "blob:replacement"; },
+    revokeObjectURL(url) { replacementRevoked.push(url); }
+  }
+});
+const replacementElement = createFakeVideoElement();
+replacementFacade.attachVideoBlob(
+  /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (replacementElement)),
+  new Blob(["replacement"]),
+  { sourceId: "replacement-blob" }
+);
+const replacementCamera = createFakeStream();
+replacementFacade.attachCameraStream(
+  /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (replacementElement)),
+  /** @type {MediaStream} */ (/** @type {unknown} */ (replacementCamera.stream)),
+  { ownership: "facade-owned", source: createLiveCameraSourceDescriptor({ sourceId: "replacement-camera" }) }
+);
+assert.deepEqual(replacementRevoked, ["blob:replacement"]);
+assert.equal(replacementElement.src, "");
+assert.equal(replacementElement.srcObject, replacementCamera.stream);
+replacementFacade.injectCameraStream(
+  /** @type {MediaStream} */ (/** @type {unknown} */ (replacementCamera.stream))
+);
+assert.equal(replacementCamera.track.stopCalls, 0, "re-injecting the retained stream must not stop it");
+replacementFacade.attachVideoSource(
+  /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (replacementElement)),
+  background
+);
+assert.equal(replacementCamera.track.stopCalls, 1, "leaving an owned camera must stop it exactly once");
+assert.equal(replacementFacade.getRetainedCameraStream(), undefined);
+
+const hostReplacementFacade = createBrowserVideoMediaFacade();
+const hostReplacementElement = createFakeVideoElement();
+const hostReplacement = createFakeStream();
+hostReplacementFacade.attachCameraStream(
+  /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (hostReplacementElement)),
+  /** @type {MediaStream} */ (/** @type {unknown} */ (hostReplacement.stream))
+);
+hostReplacementFacade.attachVideoSource(
+  /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (hostReplacementElement)),
+  background
+);
+assert.equal(hostReplacement.track.stopCalls, 0, "leaving a host-owned camera must not stop it");
+assert.equal(hostReplacementFacade.getRetainedCameraStream(), undefined);
+
+// Rebinding to another element clears the old element and all of its listeners.
+const rebindFacade = createBrowserVideoMediaFacade();
+const rebindStream = createFakeStream();
+const oldElement = createFakeVideoElement();
+const newElement = createFakeVideoElement();
+rebindFacade.injectCameraStream(/** @type {MediaStream} */ (/** @type {unknown} */ (rebindStream.stream)));
+rebindFacade.attachCameraStream(/** @type {HTMLVideoElement} */ (/** @type {unknown} */ (oldElement)));
+rebindFacade.attachCameraStream(/** @type {HTMLVideoElement} */ (/** @type {unknown} */ (newElement)));
+assert.equal(oldElement.srcObject, null);
+assert.equal(oldElement.listenerCount(), 0);
+assert.equal(newElement.srcObject, rebindStream.stream);
+
+// Explicit pause, visibility, lease, and source replacement all beat a late play completion.
+/** @param {(facade: import("../src/browser-video-facade.js").BrowserVideoMediaFacade, element: FakeVideoElement) => void} cancel */
+async function assertLatePlayCancelled(cancel) {
+  const raceFacade = createBrowserVideoMediaFacade();
+  const raceElement = createFakeVideoElement();
+  /** @type {() => void} */ let resolveRacePlay = () => {};
+  raceElement.play = () => new Promise((resolve) => { resolveRacePlay = resolve; });
+  raceFacade.attachVideoSource(
+    /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (raceElement)),
+    background
+  );
+  const racePlay = raceFacade.play(/** @type {HTMLVideoElement} */ (/** @type {unknown} */ (raceElement)));
+  cancel(raceFacade, raceElement);
+  resolveRacePlay();
+  await racePlay;
+  assert.notEqual(raceFacade.describeSurface().playbackState, "playing");
+}
+await assertLatePlayCancelled((raceFacade) => { raceFacade.pause(); });
+await assertLatePlayCancelled((raceFacade) => { raceFacade.setDocumentHidden(true); });
+await assertLatePlayCancelled((raceFacade) => { raceFacade.pauseForLease(); });
+await assertLatePlayCancelled((raceFacade) => {
+  raceFacade.attachVideoSource(
+    /** @type {HTMLVideoElement} */ (/** @type {unknown} */ (createFakeVideoElement())),
+    createLoadedVideoSourceDescriptor({ url: "https://assets.example/replacement.mp4", sourceId: "race-replacement" })
+  );
+});
 
 console.log("Video lifecycle, ownership, visibility, lease, CORS, and teardown validation passed.");

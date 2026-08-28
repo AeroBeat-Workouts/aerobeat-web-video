@@ -20,7 +20,8 @@ The built-in implementation uses browser media APIs behind an AeroBeat-owned bou
 
 - Direct `getUserMedia` results are facade-owned. Replacing, releasing, or destroying them stops their tracks.
 - Injected streams are host-owned by default and are never stopped by the facade. Explicit `ownership: "facade-owned"` transfers teardown responsibility.
-- Every camera/play request captures operation and lifecycle generations. Abort or destroy makes a late result stale; late acquired tracks are stopped immediately.
+- Every camera/play request captures operation and lifecycle generations. Abort, pause, visibility/lease pause, source replacement, or destroy makes a late result stale; late acquired tracks are stopped immediately.
+- Cross-source and cross-element replacement detaches stale surfaces, revokes facade-owned object URLs, and releases only facade-owned streams; host-owned streams are merely forgotten.
 - `destroy()` is synchronous and idempotent. It removes listeners, detaches the element, revokes owned object URLs, and clears retained references. `reconnect()` starts a fresh generation.
 - Hidden-document and lease pause retain the camera; lease release relinquishes the stream by default. Assembly remains the only cross-instance arbiter.
 - `calibrationSourceIdentity` and `sourceChangeId` reflect source ID, mirror state, and intrinsic aspect. Input invalidates calibration when this identity changes.

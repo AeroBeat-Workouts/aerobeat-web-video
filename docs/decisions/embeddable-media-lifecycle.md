@@ -8,7 +8,8 @@ Each connected game creates its own browser video facade. The facade owns browse
 
 - `getUserMedia` streams are facade-owned and their tracks stop on replacement, lease release, or destroy.
 - Injected streams are host-owned by default and are never stopped by detach or destroy. A host may explicitly transfer ownership.
-- Every async camera or playback operation captures lifecycle and operation generations. Late results are discarded; a late facade-owned camera result is stopped immediately.
+- Every async camera or playback operation captures lifecycle and operation generations. Pause, visibility/lease pause, source replacement and destroy invalidate pending playback; late results are discarded, and a late facade-owned camera result is stopped immediately.
+- Cross-source and cross-element replacement detaches stale elements, revokes facade-owned object URLs and releases only facade-owned streams. Host-owned injected tracks are never stopped.
 - Destroy is synchronous and idempotent. Reconnect starts a fresh generation and never revives prior async work.
 - Hidden-document and lease-pause hooks pause media consumers while retaining a camera stream. Lease release may relinquish the retained stream.
 - Source ID, mirror state, and intrinsic aspect form the calibration source identity. Any change increments `sourceChangeId` so input can invalidate calibration.

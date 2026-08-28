@@ -253,8 +253,22 @@ export function createBrowserVideoMediaFacade(options = {}) {
   }
 
   /** @param {HTMLVideoElement} element */
+  function detachElement(element) {
+    element.pause();
+    if (element.srcObject) element.srcObject = null;
+    element.removeAttribute("src");
+    element.load();
+    if (element === attachedElement) {
+      unbindElement();
+      attachedElement = undefined;
+      revokeOwnedObjectUrl();
+    }
+  }
+
+  /** @param {HTMLVideoElement} element */
   function bindElement(element) {
-    unbindElement();
+    if (attachedElement && attachedElement !== element) detachElement(attachedElement);
+    else unbindElement();
     attachedElement = element;
     const bindings = /** @type {const} */ ([
       ["loadedmetadata", () => refreshSourceIdentity(element)],
@@ -302,9 +316,10 @@ export function createBrowserVideoMediaFacade(options = {}) {
   /** @param {boolean} hidden */
   function setDocumentHidden(hidden) {
     documentHidden = hidden;
-    if (hidden && attachedElement) {
-      attachedElement.pause();
-      playbackState = "paused";
+    if (hidden) {
+      nextOperation();
+      if (attachedElement) attachedElement.pause();
+      if (playbackState === "playing" || playbackState === "loading") playbackState = "paused";
     }
     return describeStatus();
   }
@@ -359,16 +374,18 @@ export function createBrowserVideoMediaFacade(options = {}) {
 
   /** @param {HTMLVideoElement | undefined} element */
   function clearVideoElement(element = attachedElement) {
-    if (element) {
-      element.pause();
-      if (element.srcObject) element.srcObject = null;
-      element.removeAttribute("src");
-      element.load();
-    }
-    if (!element || element === attachedElement) {
+    nextOperation();
+    if (element) detachElement(element);
+    else {
       unbindElement();
       attachedElement = undefined;
       revokeOwnedObjectUrl();
+    }
+    if (currentSource?.kind !== "live-camera") {
+      currentSource = undefined;
+      refreshSourceIdentity(undefined);
+      readabilityState = "not-required";
+      readabilityReason = undefined;
     }
     if (lifecycleState !== "destroyed") playbackState = retainedStream ? "ready" : "idle";
     return describeSurface();
@@ -377,7 +394,12 @@ export function createBrowserVideoMediaFacade(options = {}) {
   function teardownCameraStream() {
     nextOperation();
     releaseRetainedStream();
-    if (currentSource?.kind === "live-camera" && lifecycleState !== "destroyed") playbackState = "idle";
+    if (currentSource?.kind === "live-camera") {
+      if (attachedElement) detachElement(attachedElement);
+      currentSource = undefined;
+      refreshSourceIdentity(undefined);
+      if (lifecycleState !== "destroyed") playbackState = "idle";
+    }
   }
 
   const facade = /** @type {BrowserVideoMediaFacade} */ ({
@@ -401,7 +423,7 @@ export function createBrowserVideoMediaFacade(options = {}) {
       }
       const requestGeneration = generation;
       const requestOperation = nextOperation();
-      setCurrentSource(source);
+      const previousSourceKind = currentSource?.kind;
       lastError = undefined;
       playbackState = "loading";
       if (!mediaDevices?.getUserMedia) {
@@ -419,9 +441,12 @@ export function createBrowserVideoMediaFacade(options = {}) {
           stopTracks(stream);
           return { status: "stale", source, stream: undefined, errorName: "AbortError", message: "Late camera result was discarded", generation: requestGeneration };
         }
+        if (previousSourceKind !== undefined && previousSourceKind !== "live-camera" && attachedElement) detachElement(attachedElement);
         releaseRetainedStream();
         retainedStream = stream;
         streamOwnership = "facade-owned";
+        setCurrentSource(source);
+        if (previousSourceKind === "live-camera" && attachedElement) attachedElement.srcObject = stream;
         playbackState = "ready";
         return { status: "granted", source, stream, errorName: undefined, message: "Camera permission granted", generation: requestGeneration };
       } catch (error) {
@@ -440,16 +465,22 @@ export function createBrowserVideoMediaFacade(options = {}) {
     injectCameraStream(stream, injectOptions = {}) {
       if (lifecycleState === "destroyed") return describeSurface();
       nextOperation();
-      releaseRetainedStream();
+      const previousSourceKind = currentSource?.kind;
+      if (previousSourceKind !== undefined && previousSourceKind !== "live-camera" && attachedElement) detachElement(attachedElement);
+      const nextOwnership = injectOptions.ownership ?? (stream === retainedStream ? streamOwnership : "host-owned");
+      if (stream !== retainedStream) releaseRetainedStream();
       retainedStream = stream;
-      streamOwnership = injectOptions.ownership ?? "host-owned";
+      streamOwnership = nextOwnership;
       setCurrentSource(injectOptions.source ?? createLiveCameraSourceDescriptor());
+      if (previousSourceKind === "live-camera" && attachedElement) attachedElement.srcObject = stream;
       lastError = undefined;
       playbackState = "ready";
       return describeSurface();
     },
     attachCameraStream(videoElement, stream = retainedStream, attachOptions = {}) {
       if (lifecycleState === "destroyed") return describeSurface();
+      nextOperation();
+      if (currentSource?.kind !== undefined && currentSource.kind !== "live-camera" && attachedElement) detachElement(attachedElement);
       if (!stream) {
         setCurrentSource(attachOptions.source ?? createLiveCameraSourceDescriptor());
         playbackState = "error";
@@ -457,7 +488,9 @@ export function createBrowserVideoMediaFacade(options = {}) {
         return describeSurface(videoElement);
       }
       if (stream !== retainedStream) facade.injectCameraStream(stream, attachOptions);
-      else if (attachOptions.source) setCurrentSource(attachOptions.source);
+      else if (attachOptions.source || currentSource?.kind !== "live-camera") {
+        setCurrentSource(attachOptions.source ?? createLiveCameraSourceDescriptor());
+      }
       bindElement(videoElement);
       videoElement.srcObject = stream;
       videoElement.muted = true;
@@ -467,7 +500,9 @@ export function createBrowserVideoMediaFacade(options = {}) {
     },
     attachVideoSource(videoElement, source) {
       if (lifecycleState === "destroyed") return describeSurface();
-      clearVideoElement(attachedElement);
+      nextOperation();
+      if (currentSource?.kind === "live-camera") teardownCameraStream();
+      else clearVideoElement(attachedElement);
       setCurrentSource(source);
       bindElement(videoElement);
       playbackState = "loading";
@@ -510,6 +545,7 @@ export function createBrowserVideoMediaFacade(options = {}) {
       return describeSurface(videoElement);
     },
     pause(videoElement = attachedElement) {
+      nextOperation();
       videoElement?.pause();
       if (lifecycleState !== "destroyed") playbackState = "paused";
       return describeSurface(videoElement);
@@ -534,6 +570,7 @@ export function createBrowserVideoMediaFacade(options = {}) {
     },
     pauseForLease() {
       if (lifecycleState === "destroyed") return describeStatus();
+      nextOperation();
       leaseState = "paused";
       if (attachedElement) {
         attachedElement.pause();
@@ -543,6 +580,7 @@ export function createBrowserVideoMediaFacade(options = {}) {
     },
     releaseLease(releaseOptions = {}) {
       if (lifecycleState === "destroyed") return describeStatus();
+      nextOperation();
       leaseState = "released";
       if (attachedElement) {
         attachedElement.pause();

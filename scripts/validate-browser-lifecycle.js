@@ -27,7 +27,10 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const address = server.address();
 assert.ok(address && typeof address === "object");
 const origin = `http://127.0.0.1:${address.port}`;
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
+});
 const page = await browser.newPage();
 /** @type {string[]} */ const consoleProblems = [];
 page.on("console", (message) => {
@@ -39,6 +42,17 @@ try {
   await page.goto(`${origin}/.testbed/demo/index.html`, { waitUntil: "load" });
   const result = await page.evaluate(async () => {
     const module = await import("/src/index.js");
+
+    const directFacade = module.createBrowserVideoMediaFacade({ document });
+    directFacade.activateLease();
+    const directResult = await directFacade.requestCamera(module.createLiveCameraSourceDescriptor({ sourceId: "browser-direct" }));
+    const directTrack = directResult.stream?.getVideoTracks()[0];
+    const directVideo = document.createElement("video");
+    directFacade.attachCameraStream(directVideo);
+    const directAttached = directFacade.describeSurface();
+    directFacade.destroy();
+    const directTrackAfterDestroy = directTrack?.readyState;
+
     const canvas = document.createElement("canvas");
     canvas.width = 8;
     canvas.height = 8;
@@ -74,8 +88,32 @@ try {
     facade.reportSourceReadability(false, "browser smoke probe");
     const readability = facade.describeStatus();
     facade.clearVideoElement();
+
+    const transitionFacade = module.createBrowserVideoMediaFacade({ document });
+    const transitionCanvas = document.createElement("canvas");
+    transitionCanvas.width = 8;
+    transitionCanvas.height = 8;
+    const transitionStream = transitionCanvas.captureStream(1);
+    const transitionTrack = transitionStream.getVideoTracks()[0];
+    const oldVideo = document.createElement("video");
+    const newVideo = document.createElement("video");
+    transitionFacade.injectCameraStream(transitionStream, { ownership: "facade-owned" });
+    transitionFacade.attachCameraStream(oldVideo);
+    transitionFacade.attachCameraStream(newVideo);
+    const oldElementCleared = oldVideo.srcObject === null;
+    transitionFacade.attachVideoSource(newVideo, module.createLoadedVideoSourceDescriptor({
+      url: "data:video/webm;base64,",
+      sourceId: "browser-transition"
+    }));
+    const transitionTrackAfterVideo = transitionTrack.readyState;
+    const transitionStreamReleased = transitionFacade.getRetainedCameraStream() === undefined;
+    transitionFacade.destroy();
+
     hostTrack.stop();
     return {
+      directStatus: directResult.status,
+      directOwnership: directAttached.streamOwnership,
+      directTrackAfterDestroy,
       attachedOwnership: attached.streamOwnership,
       attachedIdentity: attached.calibrationSourceIdentity,
       hostTrackAfterDestroy,
@@ -84,10 +122,16 @@ try {
       blobSourceId: blobSurface.sourceId,
       blobReadabilityBeforeReport: blobSurface.readabilityState,
       readabilityAfterReport: readability.readabilityState,
-      blobCleared: blobVideo.src === ""
+      blobCleared: blobVideo.src === "",
+      oldElementCleared,
+      transitionTrackAfterVideo,
+      transitionStreamReleased
     };
   });
 
+  assert.equal(result.directStatus, "granted");
+  assert.equal(result.directOwnership, "facade-owned");
+  assert.equal(result.directTrackAfterDestroy, "ended");
   assert.equal(result.attachedOwnership, "host-owned");
   assert.match(result.attachedIdentity ?? "", /browser-host/u);
   assert.equal(result.hostTrackAfterDestroy, "live");
@@ -97,6 +141,9 @@ try {
   assert.equal(result.blobReadabilityBeforeReport, "unknown");
   assert.equal(result.readabilityAfterReport, "blocked");
   assert.equal(result.blobCleared, true);
+  assert.equal(result.oldElementCleared, true);
+  assert.equal(result.transitionTrackAfterVideo, "ended");
+  assert.equal(result.transitionStreamReleased, true);
   assert.deepEqual(consoleProblems, []);
   console.log("Browser injected-stream, ownership, reconnect, blob, and readability validation passed.");
 } finally {

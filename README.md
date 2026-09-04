@@ -6,7 +6,7 @@ AeroBeat-owned browser video and camera media lifecycle facade for the web port.
 
 This package owns browser-native live camera, injected `MediaStream`, loaded video, replay video, surface attachment, reconnect, visibility, lease-participation, CORS/readability reporting, and deterministic teardown behavior. It lists camera inputs, requests camera permission, tracks stream ownership, exposes immutable status/surface snapshots, and rejects late async work from obsolete lifecycle generations.
 
-It does not own cross-instance lease arbitration, CV inference, pose-frame production, gameplay pause policy, input routing, WebGL2 drawing, UI components, or product assembly wiring.
+It does not own cross-instance lease arbitration, CV inference, pose-frame production, gameplay pause policy, input routing, PlayCanvas drawing, UI components, or product assembly wiring.
 
 The built-in implementation uses browser media APIs behind an AeroBeat-owned boundary. Future vendor/player backends should adapt behind this facade instead of leaking vendor-native media object graphs to CV, input, renderer, UI, or assembly code.
 
@@ -32,7 +32,7 @@ The built-in implementation uses browser media APIs behind an AeroBeat-owned bou
 - `aerobeat-web-cv` consumes media surfaces later to produce normalized pose frames.
 - `aerobeat-web-input` owns gameplay-facing input events and replay/fake pose routing.
 - `aerobeat-web-ui` owns calibration and media status components.
-- `aerobeat-web-renderer` owns WebGL2 gameplay drawing.
+- `aerobeat-web-renderer` owns PlayCanvas gameplay drawing (`aero.renderer.playcanvas`).
 - `aerobeat-web-assembly` wires concrete facade instances into the product shell.
 
 ## Source Boundary

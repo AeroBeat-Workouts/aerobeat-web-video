@@ -170,6 +170,22 @@ const changedAspect = facade.describeSurface();
 assert.notEqual(changedAspect.calibrationSourceIdentity, firstIdentity);
 assert.ok(changedAspect.sourceChangeId > firstSurface.sourceChangeId);
 
+// A transient 0×0 surface (intrinsic dimensions not yet loaded, e.g. mid
+// stream renegotiation) must NOT invalidate the last known identity: the
+// change counter and signature stay put, and returning to the same real
+// dimensions is not a new change.
+element.videoWidth = 0;
+element.videoHeight = 0;
+const zeroSurface = facade.describeSurface();
+assert.equal(zeroSurface.sourceChangeId, changedAspect.sourceChangeId, "0×0 transient must not advance sourceChangeId");
+assert.equal(zeroSurface.calibrationSourceIdentity, changedAspect.calibrationSourceIdentity, "0×0 transient must not change the identity signature");
+element.videoWidth = 640;
+element.videoHeight = 640;
+element.dispatch("loadedmetadata");
+const restoredAspect = facade.describeSurface();
+assert.equal(restoredAspect.sourceChangeId, changedAspect.sourceChangeId, "restoring the same dimensions must not advance sourceChangeId");
+assert.equal(restoredAspect.calibrationSourceIdentity, changedAspect.calibrationSourceIdentity, "restoring the same dimensions must not change the identity signature");
+
 visibility.setHidden(true);
 assert.equal(facade.describeStatus().documentHidden, true);
 assert.equal(facade.describeStatus().inferencePaused, true);

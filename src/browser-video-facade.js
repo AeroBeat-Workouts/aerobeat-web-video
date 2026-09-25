@@ -294,6 +294,10 @@ export function createBrowserVideoMediaFacade(options = {}) {
     const width = positiveNumberOrUndefined(element?.videoWidth);
     const height = positiveNumberOrUndefined(element?.videoHeight);
     const aspect = width && height ? width / height : undefined;
+    // A transient 0×0 surface (intrinsic dimensions not yet loaded, e.g. mid
+    // stream renegotiation) must not invalidate the last known identity: keep
+    // the prior signature and do not advance the change counter.
+    if (aspect === undefined && sourceSignature !== undefined) return;
     const signature = currentSource
       ? `${currentSource.kind}|${currentSource.sourceId}|${currentSource.mirrored ? "mirrored" : "unmirrored"}|${aspect?.toFixed(6) ?? "aspect-unknown"}`
       : undefined;
